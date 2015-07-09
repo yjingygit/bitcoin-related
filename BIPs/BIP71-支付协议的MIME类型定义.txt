@@ -1,0 +1,22 @@
+								支付协议的MIME类型定义
+
+
+一、 概要：
+	本协议定义了一个比特币支付请求信息使用的MIME类型定义。
+
+二、 目的：
+	钱包和服务器通过邮件或http发送支付协议信息的时候需要遵循Internet标准正确的封装信息。
+
+三、 规范：
+	比特币协议信息的媒体类型（HTML/邮件头中的Content-Type）如下：
+			信息类型			媒体类型
+			支付请求         application/bitcoin-paymentrequest
+			支付             application/bitcoin-payment
+			支付回应         application/bitcoin-paymentack
+	支付协议信息以二进制形式进行编码。
+
+四、 例子：
+	一个网络服务器生成支付请求信息来发起一个支付协议时，需要在二进制数据信息的前面添加以下信息：
+			Content-Type: application/bitcoin-paymentrequest
+			Content-Transfer-Encoding: binary
+

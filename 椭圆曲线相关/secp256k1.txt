@@ -1,0 +1,46 @@
+
+
+secp256k1：
+	secp256k1涉及到了比特币中使用的ECDSA(椭圆曲线)的参数，并且遵循SEC（Certicom的研究结果）的标准。
+
+	在比特币变的流行前，secp256k1基本没有被使用，但是，现在由于它具有的一些很好的性质而变的流行起来。
+	最通用的曲线为随机构建，但是secp256k1的构建采用了一种特殊的非随机方式来允许进行特别高效的计算。
+	带来的效果是，如果它的实现经过充分的优化后可以带来超过其它曲线30%的速度提升。
+	同样的，不像流行的NIST曲线，secp256k1的常数以一种可预见的方式选取，明确的降低了曲线的创建者在曲线中插入任何类型后门的可能性。
+
+技术细节：
+	椭圆曲线secp256k1的域参数Fp由六元组 T = (p,a,b,G,n,h) 表示。有限域Fp定义为：
+	The elliptic curve domain parameters over Fp associated with a Koblitz curve secp256k1 are specified by the sextuple T = (p,a,b,G,n,h) where the finite field Fp is defined by:	 
+		p = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE FFFFFC2F
+		  = 2^256 - 2^32 - 2^9 - 2^8 - 2^7 - 2^6 - 2^4 - 1
+	
+	Fp域中的曲线： E: y^2 = x^3+ax+b 定义：
+		a = 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+		b = 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000007
+
+	基础点G的压缩格式为：
+		G = 02 79BE667E F9DCBBAC 55A06295 CE870B07 029BFCDB 2DCE28D9 59F2815B 16F81798
+	解压后的格式为：
+		G = 04 79BE667E F9DCBBAC 55A06295 CE870B07 029BFCDB 2DCE28D9 59F2815B 16F81798 483ADA77 26A3C465 5DA4FBFC 0E1108A8 FD17B448 A6855419 9C47D08F FB10D4B8
+
+	G的序号n和辅因子为： Finally the order n of G and the cofactor are:
+		n = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+		h = 01
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

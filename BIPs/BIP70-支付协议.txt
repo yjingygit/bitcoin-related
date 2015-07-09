@@ -1,0 +1,231 @@
+							支付协议
+
+	* 目前在bitcoinj和最新版的比特币钱包中已经添加支持。
+
+一、 摘要：
+	本篇描述了一个商家和他们顾客间交流的协议，给双方提供一个更好的用户体验和更好的防御支付过程中中间人攻击的安全机制。
+
+二、 动机：
+	现在，极少的(?)比特币支付协议按照以下步骤操作：
+		1. 顾客将商品添加到在线购物车，并决定使用比特币支付。
+		2. 商家生成一个唯一的支付地址，并将它分配给顾客的订单，然后要求顾客进行支付。
+		3. 顾客从商家的页面上复制支付地址，并拷贝到他们使用的比特币钱包中，或者从一个比特币链接中获取支付地址和数额。
+		4. 顾客对这笔支付进行授权，付款到商家的地址并将交易通过比特币的P2P网络广播出去。
+		5. 商家的服务器监测到该笔支付，并在经过足够数量的确认后确认完成交易。
+
+	本篇扩展了以上协议以支持一些新的特性：
+		1. 友好可读的，安全的付款地址。客户们需要去验证支付到“example.com”来替换一个莫名其妙的34个字符的比特币地址。
+		2. 支付安全保证，防止和商家产生争端后的处理。
+		3. 抵抗中间人攻击，在使用冷钱包对交易进行验证前被攻击者使用自己的比特币地址替换商家的比特币地址。
+		4. 支付后的回馈信息，可以使客户在商家收到付款，已经处理(或正在处理)他们的支付时收到回馈。
+		5. 退款地址，由商家的钱包软件自动发给商家，以方便商家在进行退款或者在订单因为某些原因无法完成时不用再联系客户。
+
+三、 协议：
+	本篇描述的支付协议信息使用Google的Protocol Buffers进行编码，通过X.509规范的证书认证，通过http/https进行传输。
+	以后其它的BIPs可以在编码，PKI系统，或者传输协议等方面对该协议进行扩展。
+	
+	本支付协议由三部分信息组成：支付请求，支付，支付答复。整个过程由客户表示他们准备要进行付款，而商家的服务器回复一个支付请求信息开始。
+	* 流程图见： https://github.com/bitcoin/bips/blob/master/bip-0070/Protocol_Sequence.png
+		1. 客户点击“支付”按钮，向商家服务器提出请求。
+		2. 商家服务器将“支付请求”信息回复给用户的钱包软件。
+		3. 钱包软件要求用户进行验证，确定后点击ok。
+		4. 钱包软件收到用户的确认后向商家进行支付并将交易通过比特币网络进行发送。
+		5. 商家进行支付应答信息。
+		6. 商家从比特币网络接收交易信息；钱包软件根据商家的应答向用户发送信息。
+	
+
+
+四、 信息：
+	协议信息定义如下：
+			//
+			// Simple Bitcoin Payment Protocol messages
+			//
+			// Use fields 1000+ for extensions;
+			// to avoid conflicts, register extensions via pull-req at
+			// https://github.com/bitcoin/bips/bip-0070/extensions.mediawiki
+			//
+
+			package payments;
+			option java_package = "org.bitcoin.protocols.payments";
+			option java_outer_classname = "Protos";
+
+			// Generalized form of "send payment to this/these bitcoin addresses"
+			message Output {
+					optional uint64 amount = 1 [default = 0]; // amount is integer-number-of-satoshis
+					required bytes script = 2; // usually one of the standard Script forms
+			}
+			message PaymentDetails {
+					optional string network = 1 [default = "main"]; // "main" or "test"
+					repeated Output outputs = 2;        // Where payment should be sent
+					required uint64 time = 3;           // Timestamp; when payment request created
+					optional uint64 expires = 4;        // Timestamp; when this request should be considered invalid
+					optional string memo = 5;           // Human-readable description of request for the customer
+					optional string payment_url = 6;    // URL to send Payment and get PaymentACK
+					optional bytes merchant_data = 7;   // Arbitrary data to include in the Payment message
+			}
+			message PaymentRequest {
+					optional uint32 payment_details_version = 1 [default = 1];
+					optional string pki_type = 2 [default = "none"];  // none / x509+sha256 / x509+sha1
+					optional bytes pki_data = 3;                      // depends on pki_type
+					required bytes serialized_payment_details = 4;    // PaymentDetails
+					optional bytes signature = 5;                     // pki-dependent signature
+			}
+			message X509Certificates {
+					repeated bytes certificate = 1;    // DER-encoded X.509 certificate chain
+			}
+			message Payment {
+					optional bytes merchant_data = 1;  // From PaymentDetails.merchant_data
+					repeated bytes transactions = 2;   // Signed transactions that satisfy PaymentDetails.outputs
+					repeated Output refund_to = 3;     // Where to send refunds, if a refund is necessary
+					optional string memo = 4;          // Human-readable message for the merchant
+			}
+			message PaymentACK {
+					required Payment payment = 1;      // Payment message that triggered this ACK
+					optional string memo = 2;          // human-readable message for customer
+			}
+
+	输出(Output)：
+		支付请求信息中的输出用于指定支付或部分支付的接收地址。他们同样可以用于在支付信息中指定退款的地址。
+			message Output {
+				optional uint64 amount = 1 [default = 0];
+				optional bytes script = 2;
+			}
+			amount： 需要支付的金额，以“聪(0.00000001BTC)”为单位。
+			script： 一个支付接收信息的“TxOut”脚本。正常情况下将会是一个标准的比特币Transaction脚本(例如：pubkey OP_CHECKSIG)。
+					 这个一个支持未来对本协议进行扩展的可选项，以从一个主公钥和支付请求信息本身中导出Outputs信息。
+	
+	支付详情/支付请求(PaymentDetails/PaymentRequest)：
+		支付请求被切割成两部分信息用于支持未来的扩展。
+		信息主体包含在支付详情信息中。被包扩了商家信息和数字签名等元信息(meta-information)的支付请求信息所包含，
+			message PaymentDetails {
+				optional string network = 1 [default = "main"];
+				repeated Output outputs = 2;
+				required uint64 time = 3;
+				optional uint64 expires = 4;
+				optional string memo = 5;
+				optional string payment_url = 6;
+				optional bytes merchant_data = 7;
+			}
+			network: “main”表示比特币正式网络，“test”表示测试网络。如果一个客户端接收到了一个他所不支持的网络的支付请求，那它必须拒绝该请求。
+			outputs: 一个或多个比特币发送的输出。
+					 如果输出的总金额为0，则需要询问客户需要支付的金额，比特币客户端可以从Outputs中选择任何一个用于支付。
+					 如果输出的总金额不是0，则需要询问客户是否支付所有金额，如果用户统一了，则需要按照各输出要求的金额进行分配。					 
+			time: 支付请求创建的Unix时间戳。
+			expires: 超过该时间后，支付请求需要被认定为无效的。
+			memo: UTF-8编码的普通无格式文本。记录需要向顾客展示的信息，或说明支付请求的用途。
+			payment_url: 一个包含支付应答的支付信息的加密后的接收地址。
+			merchant_data: 一个商家自定的，可以用于帮助商家识别支付请求的数据。
+						   如果商家不需要将支付和支付请求进行关联或者使用独立的支付地址进行关联时可以忽略。
+
+		支付详情中指定的支付链接需要至少在支付详情过期前是可验证的（或在支付详情没过期时拥有尽可能的有效期）。
+		这个要求和支付请求中任何状态的变动都是不相关的。例如：不能因为一个订单的取消废除支付链接，商家的服务器能够记录错误支付的信息，从而能够进行针对性的退款。
+
+		一个支付请求是将支付详情和商家的标识进行捆绑的信息。
+			message PaymentRequest {
+				optional uint32 payment_details_version = 1 [default = 1];
+				optional string pki_type = 2 [default = "none"];
+				optional bytes pki_data = 3;
+				required bytes serialized_payment_details = 4;
+				optional bytes signature = 5;
+			}
+			payment_details_version: 可以查看后方关于版本控制/升级的讨论。
+			pki_type: public-key infrastructure (PKI)系统用于识别商家。所有支持该协议的实现需要支持"none", "x509+sha256"和"x509+sha1"。
+			pki_data: PKI系统数据，用于识别商家并用于创建数字签名。在“X.509”证书中，pki_data包含一个或多个“X.509”证书。
+			serialized_payment_details: 使用protocol-buffer序列化的支付详情信息。
+			signature: 使用protocol buffer序列化支付请求信息后，对其hash信息的数字签名，包含所有按照数字顺序排序后的的序列化字段（目前所有的protocol buffer的实现在序列化时都是使用的数字顺序），签名使用的是pki_data中的公钥所对应的私钥。
+					   可选字段不进行设值也没有被序列化（但是，将一个字段设为它的默认值会导致被序列化包含并会影响到签名）。
+					   在进行序列化前，签名字段必须设空值以保证字段会被签名后的支付请求包含，但是不包含任何值。
+
+		当一个比特币钱包应用接收到一个支付请求时，必须按照以下步骤授权支付：
+			1. 如果pki_type不是“none”，则使用PKI系统校验商家的身份和签名。
+			2. 校验用户系统的Unix时间戳是否在支付详情的过期时间之前。如果已过期，则必须拒绝该笔支付。
+			3. 显示商家的身份标识并询问客户是否统一进行支付（例如：显示第一个X.509证书中的“Common Name”字段）。
+		
+		支付请求信息大于50000字节时，钱包应用应当拒绝支付，以降低拒绝服务攻击的可能。
+
+	
+	支付(Payment)：
+		支付信息将在用户授权支付后进行发送：
+			message Payment {
+				optional bytes merchant_data = 1;
+				repeated bytes transactions = 2;
+				repeated Output refund_to = 3;
+				optional string memo = 4;
+			}
+			merchang_data: 支付详情中merchant_data的备份。商家可以使用发货单号或者其它任何能将支付和支付请求关联到一起的数据。
+						   需要注意的是：恶意的客户端有可能更改这个值，因此这个值必须能够进行某些方式的验证（如：使用商家独有的key进行签名）。
+			transactions: 一个或多个通过验证的，已签名的，足够支付该支付请求的比特币交易。
+			refund_to: 在商家有必要进行退款时使用的一个或多个输出。商家可以在支付请求完成后的2个月内使用这些输出进行退款。
+					   超过这个时间后，如果需要退款则需要各方进行协商。
+			memo: 用户发给商家的UTF-8编码的，无格式的文本信息。
+
+		如果用户对支付进行了授权，比特币客户端需要进行以下动作：
+			1. 创建一个或多个交易并签名，要求足够满足支付详情中outputs字段中的金额。
+			2. 检查客户系统的Unix时间戳是否仍然在支付详情expires字段指定的时间之前。如果已经超时，则取消该笔支付。
+			3. 将交易信息在比特币网络上进行广播。
+			4. 如果交易详情中指定了payment_url字段，以POST方式将支付信息发送到该链接。支付信息需要进行序列化并做为POST请求的body进行发送。
+
+		和payment_url服务器之间关于错误信息的沟通需要通知到用户。
+		在如下场景中：对同一笔不可分隔的支付请求，商家服务器接收到多个相同的支付信息时，应当回应所有支付者。
+		商家服务器发送的第二个和之后的支付回应可能包含不同的memo字段信息来标明该笔支付当前的状态（例如：网络中的确认数）。
+		这点是必须进行的，以确保如：在传输层传输失败时通过比特币客户端重新发送支付信息来恢复该笔支付。
+
+		支付详情中的“payment_url”字段应该进行加密，以避免中间人攻击修改支付信息中的“refund_to”字段的内容（如果使用HTTP，那么需要使用TLS保护）。
+	
+		钱包软件通过HTTP发送支付信息时必须设置适当的“Content-Type”属性和接收头，例如BIP71中指定的：
+			Content-Type: application/bitcoin-payment
+			Accept: application/bitcoin-paymentack
+
+		当商家服务器接收到支付信息，它必须对交易是否满足支付的条件进行确认。
+		如果满足而且必须是在满足时，需要在比特币的P2P网络上广播该交易。
+
+		商家服务器收到大于50000字节的支付信息时应当拒绝处理，以降低拒绝服务攻击的可能。
+
+	支付应答（PaymentACK）：
+		支付应答是支付协议中最后一部分信息。它是商家服务器为了回复一个支付信息而发给比特币钱包的：
+			message PaymentACK {
+				required Payment payment = 1;
+				optional string memo = 2;
+			}
+			payment: 触发本次回应的支付信息的副本。如果客户端实现了其它将支付和支付回应进行关联的方式则可以忽略。
+			memo: UTF-8编码的，需要向客户展示的，关于交易状态的信息（如：“Payment of 1 BTC for eleven tribbles accepted for processing.”）。
+
+		钱包应用应该拒绝大于60000字节的支付回应信息，以降低拒绝服务攻击的可能。
+		由于支付回应信息包含完整的支付信息，因此这个大小比支付信息和支付请求信息的限制要大。
+
+五、 本地化（Localization）：
+	支持多语言的商家应当生成指定语言的支付请求，并且需要将语言和请求进行关联，或者在请求的merchant_data中嵌入一个语言标记。
+	商家需要根据原请求生成同样语言的支付回应。
+	
+六、 证书（Certificates）：
+	默认的PKI系统使用X.509证书（网络服务器认证使用的同一个系统）。当pki_type是“x509+sha256”或“x509+sha1”时，pki_data为protocol_buffer编码的证书链：
+		message X509Certificates {
+			repeated bytes certificate = 1;
+		}
+	
+	当pki_type是“x509+sha256”时，支付请求信息使用SHA256算法进行hash来获取信息摘要用于签名。
+	当pki_type是“x509+sha1”时，使用SHA1算法进行处理。
+
+	每个证书都是DER PKIX证书值。第一个证书中包含了对支付请求进行数字化签名的公钥信息。这些信息会被其他的证书所继承，之后各级证书都是用来证明前一个的，直到追溯到（但不包含）一个可信的权威根。
+	可信的权威根有可能被包含进来。容器（钱包）必须按照[RFC5280]验证证书链，且有任何一个验证失败时需要拒绝支付请求。
+	
+	可信任的根证书在操作系统中是包含的；如果在一个没有操作系统的设备上进行校验，建议使用Mozilla组织的根证书商店(?)。
+
+七、 可扩展性（Extensibility）：
+	protocol buffers序列化格式被设计为可扩展的。尤其是，新的、可选的字段可以添加到信息中并且会被旧的不支持的实现所忽略。
+
+	支付详情信息可以扩展新的可选字段并且已经按照“version 1”来处理。旧的实现可以验证包含新字段的支付请求的签名，但是(很明显)无法向用户展示任何新的、可选的字段。
+
+	如果将来某个时间点，商家产生支付请求信息时某些字段变为“必须的”，只能被新的实现所接受的，那么可以定义一个新版本的(version=2)支付详情信息。旧的实现需要告诉用户，他们需要升级他们的软件以支持新版本的支付详情信息。
+
+	需要在该规范的基础上扩展信息的实现需要使用从1000开始的标签，而且需要通过推送请求更新“扩展页”的记录以避免和其它的扩展产生冲突。
+
+八、 相关内容（References）：
+	BIP 0071： 支付协议的MIME类型
+	
+	BIP 0072： 支付协议的比特币链接扩展
+
+	基于公钥的（X.509）工作组(?)： http://datatracker.ietf.org/wg/pkix/charter/
+
+	Protocol Buffers： https://developers.google.com/protocol-buffers/
+

@@ -1,0 +1,208 @@
+							分层确定性钱包
+
+
+概要：
+	本文档描述了分层确定性钱包（“HD”钱包）：钱包可以对不同的系统分别共享其中的部分或整体信息，而且可以决定对方是否能够支付。
+	
+	本规范计划确定一个可以在不同的客户端之间进行交换的确定性钱包。尽管这里描述的钱包具有不少的特性，但是支持的客户端不需要支持所有特性。
+
+	本规范由两部分组成。第一部分中，提出了由一个种子推导出一个由公私钥对组成的“树”的体系。第二部分演示了在这样一个“树”上怎样创建一个钱包结构。
+
+目的：
+	比特币相关的客户端中使用随机生成的密钥。为了避免在每一笔交易后都需要备份，（默认）在一个密钥储备池中缓存了100个密钥。尽管如此，这些钱包没有在几个系统中同时共享使用的打算。
+	他们依赖钱包加密特性和密码的来实现对于所拥有的私钥的隐藏，但是这种“阉割版”的钱包同时也失去了生成公钥的能力。
+
+	确定性钱包不需要这么频繁的备份，而且椭圆曲线数学中有允许在不泄露私钥的情况下计算公钥的方案。
+	应用举例：一个网络商店可以让它的服务器为每一个用户的每个订单生成新的地址（公钥哈希），而不需要给服务器相应的私钥（花费所收到的资金所必须的）。
+
+	然而，确定性钱包通常由一个单独的密钥对的链（“chain”）组成。实际上只包含一个链意味着共享钱包基于一种“全或无”的情况。
+		The fact that there is only one chain means that sharing a wallet happens on an all-or-nothing basis.
+	然而，在某些情况下只需要共享和获取部分公钥的信息。在网络商店的例子中，服务器不需要获取所有商家钱包所有公钥的权限，而只需要那些用于接收客户支付的地址的信息；而不适合商家花费后生成的找零地址。
+	分层确定性钱包通过在一个独立的根上支持多个密钥对链来支持这种选择性共享。
+
+规范：密钥推导
+	公约：
+		本文剩余内容基于以下假设：比特币中使用的公钥密码学，即椭圆曲线密码使用“secp256k1”所定义的参数和域。以下是变量说明：
+			曲线序号的整数的模（即参数域的“n”）
+				Integers modulo the order of the curve (referred to as n).
+			曲线上点的坐标
+			字节序列
+		
+		除了椭圆曲线组中两对坐标之间的“+”操作外。级联（||）定义为将一个节点序号追加到另一个之后。
+			Addition (+) of two coordinate pair is defined as application of the EC group operation. Concatenation (||) is the operation of appending one byte sequence onto another.
+
+		在标准的转换方程中，做以下定义：
+			point(p)：返回基于“secp256k1”和整数p相关的基础点的椭圆曲线点的乘法的结果的坐标对。
+				returns the coordinate pair resulting from EC point multiplication (repeated application of the EC group operation) of the secp256k1 base point with the integer p.
+			ser<sub>32</sub>(i)：将一个32位(bit)无符号证书序列化为一个4字节(byte)的序列，大字节序。				
+			ser<sub>256</sub>(P)：将整数“p”序列化为一个32字节(byte)的序列，大字节序。			
+			ser<sub>P</sub>(P)：使用“SEC1”的压缩格式将一个坐标对“P = (x, y)”序列化为一个字节(byte)序列。
+				格式： (0x02 or 0x03) || ser<sub>256</sub>(x),头字节依赖于被省略的y坐标的奇偶校验结果。
+			parse<sub>256</sub>(P)：将一个32字节(byte)的序列解析为一个256位(bit)的数字，大字节序。
+
+	扩展键(Extended keys)：
+		接下来，我们会定义一个从父密钥推导出子密钥的数字的函数。为了防止仅仅依赖与密钥本身，我们使用一个额外的256位(bit)的熵将私钥和公钥共同进行扩展。这个额外的熵，称为“chain code”，对于对应的公钥和私钥是完全一致的，由32字节组成。
+
+		以“(k, c)”来表示一个扩展后的私钥，其中“k”是普通的私钥，“c”是“chain code”。以“(K, c)”来表示扩展后的公钥，其中“K = point(k)”，“c”是“chain code”。
+
+		每个扩展后的密钥有2^31个普通的子密钥，和2^31个“hardened”模式的子密钥。每个子密钥都有一个序号。普通子密钥使用[0, 2^31 -1]，“hardened”模式的子密钥使用[2^31, 2^32 - 1]。为了方便的标记“hardened”模式密钥的序号，i<sub>H</sub>表示“i + 2^31”。
+
+	子密钥推导函数：
+		给定一个父扩展密钥和一个序号“i”，就可以计算出相应的子扩展密钥。算法是否能够获得结果依赖于子密钥是不是“hardened”模式（或者等价于“i”大于等于2^31），以及我们使用的是公钥还是私钥。
+		父私钥->子私钥：
+			方程：CKDpriv((k<sub>par</sub>, c<sub>par</sub>), i) -> (k<sub>i</sub>, c<sub>i</sub>) 用于从一个父扩展私钥计算子扩展私钥。
+			1. 检查“i”是否大于等于2^31（该节点是否“hardened”模式）。
+				（1） 如果是“hardened”模式：令 I = HMAC-SHA512(Key=c<sub>par</sub>, Data=0x00||ser<sub>256</sub>(k<sub>par</sub>)||ser<sub>32</sub>(i))。（注：“0x00”放在私钥前将其补充为33字节）
+				（2） 如果是普通子节点：令 I = HMAC-SHA512(Key=c<sub>par</sub>, Data=ser<sub>p</sub>(point(k<sub>par</sub>))||ser<sub>32</sub>(i))。
+			2. 将“I”切分为两个32位(byte)的序列， I<sub>L</sub>和I<sub>R</sub>。
+			3. 子节点密钥k<sub>i</sub>为：parse<sub>256</sub>(I<sub>L</sub>) + k<sub>par</sub>(mod n)。
+			4. 子节点“chain code”c<sub>i</sub>为I<sub>R</sub>。
+			5. 如果parse<sub>256</sub>(I<sub>L</sub>)大于等于n，或者k<sub>i</sub>=0，则所得到的密钥是非法的，需要取i的下一个值继续去尝试。（注：发生的概率低于1/2^127）
+	
+		父公钥 -> 子公钥：
+			方程：CKDpub((K<sub>par</sub>, c<sub>par</sub>), i) -> (K<sub>i</sub>, c<sub>i</sub>) 用于从一个父节点扩展公钥计算子节点扩展公钥。
+			* 该过程仅使用于非“hardened”模式的子密钥。
+			1. 检查“i”是否大于等于2^31（该节点是否“hardened”模式）。
+				（1） 如果是“hardened”模式：直接返回失败。
+				（2） 如果是普通子节点：令 I = HMAC-SHA512(Key=c<sub>par</sub>, Data=ser<sub>p</sub>(K<sub>par</sub>)||ser<sub>32</sub>(i))。
+			2. 将“I”切分为两个32位(byte)的序列， I<sub>L</sub>和I<sub>R</sub>。
+			3. 子节点密钥K<sub>i</sub>为：point(parse<sub>256</sub>(I<sub>L</sub>)) + K<sub>par</sub>。
+			4. 子节点“chain code”c<sub>i</sub>为I<sub>R</sub>。
+			5. 如果parse<sub>256</sub>(I<sub>L</sub>)大于等于n，或者K<sub>i</sub>是无穷远点的值，则所得到的密钥是非法的，需要取i的下一个值继续去尝试。
+		
+		父私钥->子公钥：
+			方程：N((k, c)) -> (K, c)，用于从一个扩展密钥计算响应的扩展公钥。（“阉割”版本，移除了签署交易的能力）。
+			1. 获取的密钥K为：point(k)。
+			2. 获取的“chain code”c为传入的“chain code”。
+
+			从一个父私钥中计算子公钥：
+			1. N(CKDpriv((k<sub>par</sub>, c<sub>par</sub>), i))，可以在任何情况下工作。
+			2. CKDpub(N(k<sub>par</sub>, c<sub>par</sub>), i)，只适用于非“hardened”模式的子节点。
+
+			实际上这个过程等同于使非“hardened”模式的密钥变得可用（可以在不知道任何私钥的情况下推导子节点公钥），以及将他们同“hardened”模式的密钥区分开。
+				The fact that they are equivalent is what makes non-hardened keys useful (one can derive child public keys of a given parent key without knowing any private key), and also what distinguishes them from hardened keys.
+			不单单使用（更加有用的）非“hardened”模式的密钥的原因在于安全性；可以从下文了解更多信息。
+			
+		父公钥->子私钥：
+			这是不可能的。
+
+	
+	密钥树：
+		下一步是将一些“CKD”进行级联组成一个树。从主扩展密钥m开始。通过计算CKDpriv(m, i)来获取一些“i”的值，可以得到一些第一级的衍生节点。这些节点都是新的扩展密钥，同样可以使用CKDpriv函数。
+		作为简写，我们将“CKDpriv(CKDpriv(CKDpriv(m, 3<sub>H</sub>), 2), 5)”记为“m/3<sub>H</sub>/2/5”。对于公钥，将“CKDpriv(CKDpriv(CKDpriv(M, 3), 2), 5)”记为“M/3/2/5”。
+		有以下恒等关系：
+			1. N(m/a/b/c)=N(m/a/b)/c=N(m/a)/b/c=N(m)/a/b/c=M/a/b/c。
+			2. N(m/a<sub>H</sub>/b/c)=N(m/a<sub>H</sub>/b)/c=N(m/a<sub>H</sub>)/b/c。
+		但是，“N(m/a<sub>H</sub>)”不能写成“N(m)/a<sub>H</sub>”，因为后者是不可能的。
+
+		树中的每个叶子节点对应一个实际的密钥，中间节点对应于他们下级的密钥的集合。叶子节点的“chain code”是无用的，只有其中包含的公私钥是有意义的。因为这样的结构，直到任何扩展私钥后可以重现构建出所有后代节点的私钥和公钥，知道任何扩展公钥可以重新构建出所有后代非“hardened”模式的公钥。
+
+	密钥标识符：
+		扩展密钥可以通过“ECSDA”公钥序列化方式Hash160（先SHA256，再RIPEMD160）加工公钥K来进行标识，而忽略“chain code”，这个方式和交易中使用的比特币地址数据是对应的。
+		不建议对这个数据直接使用“base58”格式展示，尽管这种格式可以被解析为地址（而且没有要求钱包软件将交易支付到非叶子节点中）。 (and wallet software is not required to accept payment to the chain key itself).
+		
+		标识符的头32位(bit)称为密钥的“指纹”。
+
+	序列化格式：
+		扩展公钥和私钥按照以下格式进行序列化：
+			1. 4字节：版本字节（正式网络：0X0488ADE4私钥；0X0488B21E公钥；测试网络：0X04358394私钥，0X043587CF公钥）。
+			2. 1字节：深度。0X00，主节点；0X01，第一级衍生节点，...
+			3. 4字节：父节点的“指纹”（主节点的父指纹为：0X00000000）。
+			4. 4字节：子节点序号。ser<sub>32</sub>(i)，其中“i”为“x<sub>i</sub>=x<sub>par</sub>/i”，x<sub>i</sub>为密钥的序列化格式。（主节点为：0X00000000）
+			5. 32字节：“chain code”。
+			6. 32字节：公钥（ser<sub>P</sub>(K)）或者私钥（0X00||ser<sub>256</sub>(k)）的数据。
+		78字节的结构可以像其它比特币数据一样使用“Base58”编码，首先在尾部加入32位的校验码（由双重“SHA-256”校验码的头4个字符），之后再转换为“Base58”格式展示。
+		“Base58”编码后的字符串高达112个字符。由于特意选择的版本字节，“Base58”格式将会有特殊的头部字符，正式网络的将会显示“xprv”或“xpub”，测试网络将会显示“tprv”或“tpub”。
+
+		注意：父节点的“指纹”仅仅用于在软件中查找父节点和子节点，而且软件必须愿意自己处理冲撞问题。在内部中，可能会用到完整的160位(bit)的标识符。
+
+		当引入一个序列化的扩展公钥时，协议的实现者必须验证公钥数据中的“X”坐标是不是对应曲线上的一个点。如果不是，则这个扩展公钥是非法的。
+
+	主密钥生成：
+		可能的扩展密钥对的总量接近2^512个，但是产生的密钥长度只有256位(bit)，而且出于安全方面考虑只能使用一半。
+			The total number of possible extended keypairs is almost 2^512, but the produced keys are only 256 bits long, and offer about half of that in terms of security. 
+		因此，主密钥不能直接生成，取而代之的是使用一个潜在的较短的种子的值。
+			Therefore, master keys are not generated directly, but instead from a potentially short seed value.
+			1. 使用“(P)RNG”随机生成一个指定长度（128位(bit)到512位(bit)之间；建议使用256位(bit)）的字节序列“S”做为“seed”。
+			2. 计算：I = HMAC-SHA512(Key="Bitcoin seed", Data=S)。
+			3. 将“I”切分为两个32位(byte)的序列，I<sub>L</sub>和I<sub>R</sub>。
+			4. 使用“parse<sub>256</sub>(I<sub>L</sub>)”做为主密钥，将“I<sub>R</sub>”做为主节点“chain code”。
+			如果“I<sub>L</sub>”为“0”或者大于等于“n”，则该主密钥是非法的。
+
+规范：钱包结构
+	上一节讲述了密钥树和它们节点的处理。接下来在这个密钥树的基础上实现一个钱包的结构。
+	本节中定义的布局只是一种默认情况，尽管鼓励客户端为了兼容性进行模拟，哪怕并不支持所有的特性。
+
+	默认钱包布局：
+		一个“HDW”钱包由一些“accounts”组织而成。给“accounts”进行编号，默认账户（""）编号为0。客户端不需要支持多个帐户-如果可以，则只使用默认帐户。
+	
+		每个帐户有两个密钥链组成：一个对内的和一个对外的。对外的密钥链永固生成新的公开地址，对内的则用于其它所有操作（找零地址，挖矿地址，...等一切不需要进行交流的情况）。
+		不支持独立密钥链的客户端需要使用对外的那个处理所有的情况。
+			1. “m/i<sub>H</sub>/0/k”对应于主节点“m”推导的编码为“i”的帐户的对外密钥链中的第“k”个密钥对。
+			2. “m/i<sub>H</sub>/1/k”对应于主节点“m”推导的编码为“i”的帐户的对内密钥链中的第“k”个密钥对。
+	
+	使用案例：
+		全钱包共享：m
+			例如有两个系统需要使用一个独立的共享钱包，并且都需要能够进行支付，一个需要共享主节点扩展私钥。
+			节点可以保持一个有“N”个前导密钥的缓存池用于对外链，用于监听进向的支付。对内链的前导地址可以少一些，中间最好不要出现空白。
+			在第一个未使用的帐户链中可以有一个额外的活跃前导节点，在被使用的时候再创建一个新的。
+			注意：帐户名称仍然需要手动输入，而且无法通过区块链进行同步。
+		
+		审计：N(m/*)
+			这种情况下，一个审计人员需要拥有查看所有收入和支付交易列表的权限，可以共享所有帐户的扩展公钥。
+			这样将会允许审计人员看到这个钱包进出的所有交易，所有帐号的，而不是一个单独结构的密钥。
+
+		Per-office balances:m/i<sub>H</sub>
+			一个拥有多个独立办公室的公司，可以使用由一个独立主节点推导出的钱包。
+			这样可以让总部保持一个能够看到所有办公室进项交易和出项交易的“超级钱包”，而且可以在各办公室间调动资金。
+
+		经常性的B2B交易：N(m/i<sub>H</sub>/0)
+			例如：两个商业伙伴经常进行资金转移，一个可以使用从一种作为“超级地址”的指定帐户（M/i<sub>H</sub>/0）的对外链中衍生的公钥，可以允许频繁的不会（轻易）被关联的交易，而不需要去为每笔交易请求一个新的地址。
+			这样一个商家可以被矿池经营商们使用做为不同的支付地址。
+
+		不安全的收币人：N(m/i<sub>H</sub>/0)
+			一个不安全的网络服务器用于运行一个电子商务网页，它必须知道用于接收支付的公开地址。
+			服务器只需要知道一个独立帐户中对外链的公开的扩展密钥。
+			这样意味着：非法取得服务器权限的人最多只能看到所有的进项交易但是没有办法偷币，既无法（详细的）区分对外交易，（如果有多台服务器时）也无法看到其它服务器的进项交易。
+																		                  will not (trivially) be able to distinguish outgoing transactions
+
+兼容性：
+	为了遵守这个规范，客户端至少需要能够引入一个扩展公钥或私钥，以将它的直接后代节点设为钱包的密钥。
+																to give access to its direct descendants as wallet keys
+	在规范的第二部分提到的钱包结构（master/account/chain/subchain）只是建议性质的，但为了兼容性建议做为最简结构，哪怕对外链和对内链即没有独立的帐户又没有大的区别。
+	然而，实现者可以因为特殊的需要而偏离它；更加负责的应用可能需要更加负责的树结构。
+
+安全性：
+	EC公钥密码学本身带来的期望：
+		给定一个公钥“K”，攻击者无法找到比解决EC离散对数问题（需要2^128组操作）更加有效的算法来找到它对应的私钥。
+	本标准中的安全性：
+		1. 给定一个子扩展私钥“(k<sub>i</sub>, c<sub>i</sub>)”和整数“i”，攻击者除了以2^256的难度暴力计算“HMAC-SHA512”外无法找到更有效的方式来获取父私钥“k<sub>par</sub>”。
+		2. 给定一个“(index, 扩展私钥)”形式中任意数字（2 ≤ N ≤ 2^32 - 1）对应的元组“(i<sub>j</sub>, (k<sub>i<sub>j</sub></sub>, c<sub>i<sub>j</sub></sub>))”， 
+		   给出几个不同的值，要确定它们是否是从同一个扩展私钥中衍生而来，即确定是否存在一个密钥(k<sub>par</sub>, c<sub>par</sub>)，对于[0, n-1]中所有的值，
+		   都存在CKDpriv(((k<sub>par</sub>, c<sub>par</sub>)), i<sub>j</sub>)=(k<sub>i<sub>j</sub></sub>, c<sub>i<sub>j</sub></sub>)），除了以2^256的难度暴力计算“HMAC-SHA512”外无法找到更有效的方式。
+	注意，以下的方式是不存在的：
+		1. 给定一个扩展公钥“(K<sub>par</sub>, c<sub>par</sub>)”和一个子公钥“K<sub>i</sub>”，很难计算出“i”的值。
+		2. 给定一个扩展公钥“(K<sub>par</sub>, c<sub>par</sub>)”和一个非“hardened”模式的子私钥“k<sub>i</sub>”，很难获取到响应的父私钥“k<sub>par</sub>”。
+	
+启示（Implications）：
+	私钥和公钥必须和其它的一样保持安全。私钥的泄漏意味着无法使用比特币，公钥的泄漏意味着隐私的泄漏。
+
+	对于扩展密钥必须多加注意，因为他们关系到对应的整个密钥（子）树。
+
+	一个不会立即显现的弱点，知道一个父扩展公钥加上任何从它衍生的非“hardened”模式的私钥，就可以获取父扩展私钥（以及所有从它衍生的公钥和私钥）。
+	这意味着对于扩展公钥要比普通的公钥要更加的小心。这也是“hardened”模式的密钥存在以及在树结构中在“account”一级使用的原因。
+	这样一个特定帐户的私钥遗失将不会把风险传递到主节点和其它的帐户。
+	
+
+扩展：
+	endian：在计算机系统体系结构中用来描述在多字节数中各个字节的存储顺序。
+	Big-Endians，MSB(Most Significant Bit/Byte)。表明在一个bit/byte序列中，对整个序列取值影响最大的那个bit/byte。
+	Little-Endian，LSB(Least Significant Bit/Byte)。表明在一个bit/byte序列中，对整个序列取值影响最小的那个bit/byte。
+
+	大字节序：把高有效位放在低地址段中。
+	小字节序：把低有效位放在低地址段中。
+
+	例如：将0X1234存入地址20，21中。
+		大字节序：20（12），21（34）
+		小字节序：20（34），21（12）
+
