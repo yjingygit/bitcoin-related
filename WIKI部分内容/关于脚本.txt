@@ -1,0 +1,210 @@
+							脚本
+
+脚本：
+	比特币在交易中使用脚本系统。如同所见，这是一种简单的，基于栈结构的，从左到右执行的脚本。它是故意非“图灵完备”的，没有循环语句。
+
+	一个脚本从根本上说是一个记录描述下一个人怎么获取花费交易中的比特币的权限的指令列表。在经典的比特币交易中脚本用于简单的限制比特币地址D要花费比特币需要做到两件事情：
+		1. 一个通过hash运算后可以获得地址D的公钥。
+		2. 证明拥有和之前的公钥相对应的私钥的签名信息。
+
+	脚本为比特币的花费和转移时需要提供的参数带来了更多的灵活性。例如：脚本系统可以用于要求提供两个私钥，或者多个私钥的组合，或者不需要所有的私钥。（n-m）
+
+	如果组合脚本中的内容没有导致失败，而且栈顶元素是有效的（true, non-zero），那么这个交易就是有效的。最初发出的比特币可以被使用，脚本的操作会将币花费出去，形成另一个将来可花费的交易。
+	想要花费这些比特币必须证明之前输入中记录的脚本在操作后结果是正确的（noe-zero）。
+
+	栈中持有字节向量。当这些向量按照数字来使用时，以小端的可变长度的整数来处理，最为明显的用于确定数字长度的标志位使用。
+		When used as numbers, byte vectors are interpreted as little-endian variable-length integers with the most significant bit determining the sign of the integer.
+	因此“0x81”代表“-1”。“0x80”表示“0”（因此被称为负数0）。正数0以一个空的（null-length）向量表示。字节向量处理成Boolean值时，0表示false，任何非零值都表示true。
+
+原语：
+	以下是所有脚本原语的列表（命令/函数）。一些更复杂的操作码因为在客户端实现中会导致bug而被禁用；如果使用了这些操作码的交易被包含到链中，任何修正都有导致分叉的风险。True=1，False=0。
+
+常量：
+	当谈论脚本时，以下“值推送”原语经常会被忽略。
+
+	OP_0,OP_FALSE(Opcode: 0)：在栈中压入一个空的字节数组。（不是不做任何操作）
+	N/A(Opcode: 1-75)：下一个opcode字节是需要被压入栈中的数据。
+	OP_PUSHDATA1(Opcode: 76)：下一个字节包含了需要被压入栈中的数据的长度。
+	OP_PUSHDATA2(Opcode: 77)：下两个字节包含了需要被压入战中的数据的长度。
+	OP_PUSHDATA4(Opcode: 78)：下四个字节包含了需要被压入战中的数据的长度。
+	OP_1NEGATE(Opcode: 79)：在栈中压入“-1”。
+	OP_1,OP_TRUE(Opcode: 81)：在栈中压入“1”。
+	OP_2-OP_16(Opcode: 82-96)：（2-16）原语中对应的数组压入栈中。
+
+流控制：
+	OP_NOP(Opcode:97)：不做任何事情。
+	**** <expression> if [statements] [else [statements]]* endif  ****
+	OP_IF(Opcode:99)：如果栈顶元素不为0则执行包含的语句。栈顶元素被移除。
+	OP_NOTIF(Opcode:100)：如果栈顶元素为0则执行包含的语句。栈顶元素被移除。
+	OP_ELSE(Opcode:103)：所有条件不符合时执行该语句。
+	OP_ENDIF(Opcode:104)：结束一个if/else语句块。所有的语句块全部结束，或者交易被确定为不可用的。没有OP_IF而只有OP_ENDIF的情况是非法的。
+	OP_VERIFY(Opcode:105)：栈顶元素不是true时，将交易标记为合法。
+	OP_RETURN(Opcode:106)：将交易标记为非法。
+
+栈：
+	OP_TOTALSTACK(Opcode:107)：从主栈中删除，压入“alt”栈。（x1 -> (alt)x1）
+	OP_FROMALTSTACK(Opcode:108)：从“alt”栈中删除，压入主栈。（(alt)x1 -> x1）
+	OP_IFDUP(Opcode:115)：如果栈顶元素不是0，则重复一份。（x -> x / x x）
+	OP_DEPTH(Opcode:116)：将栈中的元素个数压入栈中。（Nothing -> <Stack Size>）
+	OP_DROP(Opcode:117)：移除栈顶元素。（x -> nothing）
+	OP_DUP(Opcode:118)：重复栈顶元素。（x -> x x）
+	OP_NIP(Opcode:119)：移除栈顶第二个元素。（x1 x2 -> x2）
+	OP_OVER(Opcode:120)：取栈中第二个元素，复制并压入栈中。（x1 x2 -> x1 x2 x1）
+	OP_PICK(Opcode:121)：复制第n个元素并压入栈中。（xn...x2 x1 x0 -> xn...x2 x1 x0 xn）
+	OP_ROLL(Opcode:122)：将第n个元素移动到栈顶。（xn...x2 x1 x0 -> ...x2 x1 x0 xn）
+	OP_ROT(Opcode:123)：栈顶的三个元素向左翻转。（x1 x2 x3 -> x2 x3 x1）
+	OP_SWAP(Opcode:124)：栈顶的两个元素进行交换。（x1 x2 -> x2 x1）
+	OP_TUCK(Opcode:125)：栈顶元素复制并插入到第二个元素之前。（x1 x2 -> x2 x1 x2）
+	OP_2DROP(Opcode:109)：移除栈顶的两个元素。（x1 x2 -> Nothing）
+	OP_2DUP(Opcode:110)：复制栈顶的两个元素。（x1 x2 -> x1 x2 x1 x2）
+	OP_3DUP(Opcode:111)：复制栈顶的三个元素。（x1 x2 x3 -> x1 x2 x3 x1 x2 x3）
+	OP_2OVER(Opcode:112)：拷贝第3和第4个元素并压入栈中。（x1 x2 x3 x4 -> x1 x2 x3 x4 x1 x2）
+	OP_2ROT(Opcode:113)：将第5和第6个元素移动到栈顶。（x1 x2 x3 x4 x5 x6 -> x3 x4 x5 x6 x1 x2）
+	OP_2SWAP(Opcode:114)：交换栈顶的两对元素。（x1 x2 x3 x4 -> x3 x4 x1 x2）
+
+剪接：
+	以下任何一个标记为禁用的操作码出现在脚本中，都必须按照失败处理并抛弃。
+	“**”表示该原语被禁用。
+	**OP_CAT(Opcode:126)：连接两个字符串。（禁用）
+	**OP_SUBSTR(Opcode:127)：返回字符串中的一部分。（禁用）
+	**OP_LEFT(Opcode:128)：保留字符串中特殊点左边的内容。（禁用）
+	**OP_RIGHT(Opcode:129)：保留字符串中特殊点右边的内容。（禁用）
+	OP_SIZE(Opcode:130)：将栈顶字符串的长度压入栈中（不需要取出(without popping it)）。
+
+位逻辑：
+	以下任何一个标记为禁用的操作码出现在脚本中，都必须按照失败处理并抛弃。
+	“**”表示该原语被禁用。
+	**OP_INVERT(Opcode:131)：翻转输入中的所有字节。（禁用）
+	**OP_AND(Opcode:132)：输入中各字节进行“and”操作。（禁用）
+	**OP_OR(Opcode:133)：输入中各字节进行“or”操作。（禁用）
+	**OP_XOR(Opcode:134)：输入中各字节直接或独自进行操作。（禁用）
+	OP_EQUAL(Opcode:135)：输入严格相等的情况下返回“1”，否则返回“0”。
+	OP_EQUALVERIFY(Opcode:136)：和“OP_EQUAL”相同，之后执行“OP_VERIFY”。
+
+算法：
+	注：算法的输入限制为32位有符号整数，但是输出可能会溢出。
+	任何命令的任何输入如果多于4字节，则脚本必须按照失败处理并抛弃。任何一个标记为禁用的操作码出现在脚本中，都必须按照失败处理并抛弃。
+	“**”表示该原语被禁用。
+	OP_1ADD(Opcode:139)：输入项加上1。
+	OP_1SUB(Opcode:140)：输入项减少1。
+	**OP_2MUL(Opcode:141)：输入项乘以2。（禁用）
+	**OP_2DIV(Opcode:142)：输入项除以2。（禁用）
+	OP_NEGATE(Opcode:143)：输入项符号反转。（乘以-1）
+	OP_ABS(Opcode:144)：取输入项的绝对值。
+	OP_NOT(Opcode:145)：输入项为0或1则进行翻转，否则输出0。（输入项为0返回1，否则返回0？）
+	OP_ONOTEQUAL(Opcode:146)：输入为0则返回0，否则返回1。
+	OP_ADD(Opcode:147)：将两个操作数相加。
+	OP_SUB(Opcode:148)：从第一个操作数中减去第二个操作数。
+	**OP_MUL(Opcode:149)：两个操作数相乘。（禁用）
+	**OP_DIV(Opcode:150)：第一个操作数除以第二个操作数。（禁用）
+	**OP_MOD(Opcode:151)：返回第一个数除以第二个数的余数。（禁用）
+	**OP_LSHIFT(Opcode:152)：将第一个操作数左移位第二个操作数指定的数字，保留符号位。（禁用）
+	**OP_RSHIFT(Opcode:153)：将第一个操作数右移位第二个操作数指定的数字，保留符号位。（禁用）
+	OP_BOOLAND(Opcode:154)：两个操作数都不是0时返回1，否则返回0。
+	OP_BOOLOR(Opcode:155)：两个操作数有一个不是0时返回1，否则返回0。
+	OP_NUMEQUAL(Opcode:156)：两个操作数相等返回1，否则返回0。
+	OP_NUMEQUALVERIFY(Opcode:157)：和“OP_NUMEQUAL”相同，但是之后继续执行“OP_VERIFY”。
+	OP_NUMNOTEQUAL(Opcode:158)：两个数不相等返回1，否则返回0。
+	OP_LESSTHAN(Opcode:159)：如果第一个操作数小于第二个操作数返回1，否则返回0。
+	OP_GREATERTHAN(Opcode:160)：如果第一个操作数大于第二个操作数返回1，否则返回0。
+	OP_LESSTHANOREQUAL(Opcode:161)：如果第一个操作数小于或等于第二个操作数返回1，否则返回0。
+	OP_GREATERTHANOREQUAL(Opcode:162)：如果第一个操作数大于或等于第二个操作数返回1，否则返回0。
+	OP_MIN(Opcode:163)：返回两个操作数中较小的那个。
+	OP_MAX(Opcode:164)：返回两个操作数中较大的那个。
+	OP_WITHIN(Opcode:165)：如果操作数在指定的范围内（左包含）则返回1，否则返回0。
+
+加密：
+	OP_RIPEMD160(Opcode:166)：使用“RIPEMD-160”对输入进行hash处理。
+	OP_SHA1(Opcode:167)：使用“SHA-1”对输入进行hash处理。
+	OP_SHA256(Opcode:168)：使用“SHA-256”对输入进行hash处理。
+	OP_HASH160(Opcode:169)：先使用“SHA-256”进行hash处理，之后对结果使用“RIPEMD-160”进行hash处理。
+	OP_HASH256(Opcode:170)：使用“SHA-256”对输入进行两次hash处理。
+	OP_CODESEPARATOR(Opcode:171)：所有签名检查原语将只和最近执行的“OP_CODESEPARATOR”之后的数据签名匹配。
+		All of the signature checking words will only match signatures to the data after the most recently-executed OP_CODESEPARATOR.
+	OP_CHECKSIG(Opcode:172)：将整个交易的输出、输入和脚本（从最近执行的“OP_CODESEPARATOR”直到最后）进行hash。进行“OP_CHECKSIG”的签名必须是这个hash和公钥的一个合法的签名。如果是返回1，否则返回0。
+		The entire transaction's outputs, inputs, and script (from the most recently-executed OP_CODESEPARATOR to the end) are hashed. The signature used by OP_CHECKSIG must be a valid signature for this hash and public key. If it is, 1 is returned, 0 otherwise.
+	OP_CHECKSIGVERIFY(Opcode:173)：和“OP_CHECKSIG”相同，但是之后继续执行“OP_VERIFY”。
+	OP_CHECKMULTISIG(Opcode:174)：比较第一个签名和各个公钥，直到找到一个符合“ECDSA”的。在剩余项中继续比较，直到所有的签名找到对应的公钥，或者没有足够的公钥用于匹配。
+		所有签名都需要匹配一个公钥。由于公钥只有在和签名不匹配时才会再次用于匹配，所有“scriptSig”中的签名的数序必须和公钥脚本或赎回脚本中他们相应的公钥使用相同的顺序。
+		如果所有签名都是合法的返回1，否则返回0。
+		由于一个bug，必须从栈中删除一个没有使用到的值。
+	OP_CHECKMULTISIGVERIFY(Opcode:175)：和“OP_CHECKMULTISIG”相同，但是之后继续执行“OP_VERIFY”。
+
+伪码（Pseudo-words）：
+	以下原语用于协助交易匹配，仅限内部使用。在任何实际脚本中使用都是非法的。
+	OP_PUBKEYHASH(Opcode:253)：使用“OP_HASH160”编码表示一个公钥。
+	OP_PUBKEY(Opcode:254)：使用兼容“OP_CHECKSIG”的编码表示一个公钥。
+	PO_INVALIDOPCODE(Opcode:255)：匹配任何尚未分配的操作码。
+
+保留原语：
+	任何没有分配的操作码同样被保留。使用未分配的操作码将会使交易变得非法。
+	OP_RESERVED(Opcode:80)：除非用于一个未执行的“OP_IF”分支中，否则交易非法。
+	OP_VER(Opcode:98)：除非用于一个未执行的“OP_IF”分支中，否则交易非法。
+	OP_VERIF(Opcode:101)：即使用于一个未执行的“OP_IF”分支中，同样为非法交易。
+	OP_VERNOTIF(Opcode:102)：即使用于一个未执行的“OP_IF”分支中，同样为非法交易。
+	OP_RESERVED1(Opcode:137)：除非用于一个未执行的“OP_IF”分支中，否则交易非法。
+	OP_RESERVED2(Opcode:138)：除非用于一个未执行的“OP_IF”分支中，否则交易非法。
+	OP_NOP1-OP_NOP10(Opcode:176-185)：这些原语被忽略，不会导致交易非法。
+
+脚本：
+	以下是内部脚本列表。留意所有以上出现的实际使用到的“数据推送（data-pushing）”命令。
+	只有少量的标准脚本格式在节点间传递；非标准的脚本如果在区块（block）中则会被接收，但是节点不会继续传递它们。
+
+	标准的发送的比特币地址的交易（pay-to-pubkey-hash）：
+		scriptPubKey: OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG
+		scriptSig: <sig> <pubKey>
+
+		为了证明脚本在网络上（on the wire）的形式，以下是一个原生的公钥脚本：
+				76       A9         14
+			  OP_DUP OP_HASH160 Bytes to push
+			  89 AB CD EF AB BA AB BA AB BA AB BA AB BA AB BA AB BA AB BA   88          AC
+								  Data to push                       OP_EQUALVERIFY OP_CHECKSIG
+		注：“scriptSig”在花费交易的输入中，“公钥脚本（scriptPubKey）”在上一个未花费交易的输出中。
+
+		以下是各原语的具体处理：
+				Stack																Script																Description
+		Empty.										<sig> <pubKey> OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG		“scriptSig”和“scriptPubKey”进行组合。
+		<sig> <pubKey>								OP_DUP OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG						栈中加入常数。
+		<sig> <pubKey> <pubKey>						OP_HASH160 <pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG								栈顶元素被复制。
+		<sig> <pubKey> <pubHashA>					<pubKeyHash> OP_EQUALVERIFY OP_CHECKSIG											栈顶元素的hash。
+		<sig> <pubKey> <pubHashA> <pubKeyHash>		OP_EQUALVERIFY OP_CHECKSIG														加入常量。
+		<sig> <pubKey>								OP_CHECKSIG																		比较栈顶的两个元素是否相等。
+		true										Empty.																			检查栈顶两个元素的签名。
+
+	过时的“pay-to-pubkey”交易：
+		直接使用“OP_CHECKSIG”而不需要对公钥进行hash处理。这种支付方式用于早起的比特币版本中，在比特币地址被引入之前直接对IP地址进行的支付。在比特币核心程序中，这种支付到公钥脚本的交易格式仍然是支持的。
+		这种交易形式的缺点在于：需要提前知道整个公钥，这意味着更长的支付地址，以及在ECDSA签名算法被突破时有更大的风险。		
+			scriptPubKey: <pubKey> OP_CHECKSIG
+			scriptSig: <sig>
+
+		检查过程：			
+				Stack						Script									Description
+			Empty.				<sig> <pubKey> OP_CHECKSIG			scriptSig and scriptPubKey are combined.
+			<sig> <pubKey>		OP_CHECKSIG							Constants are added to the stack.
+			true				Empty.								Signature is checked for top two stack items.
+		
+	不可花费的证明(?)/可删除的输出
+		使用一个公钥脚本（scriptPubKey）来标记一个交易的不可花费(?)证明的标准方式是使用如下格式：
+		The standard way to mark a transaction as provably unspendable is with a scriptPubKey of the following form:
+				scriptPubKey: OP_RETURN {zero or more ops}
+		
+		“OP_RETURN”直接将一个script标记为非法的，保证不存在可以将该output进行花费的“scriptSig”。尽管这个output还没有被花费掉，但是它是可以从“UTXO”集合中直接删除掉的。
+		“OP_RETURN”可以用于在交易中添加一个“UTXO”集合中尚未出现的信息；在P2P矿池中使用这种方式在他们所创建的coinbase中共享区块链的hash。
+
+	任何人都可以花费的输出（Anyone-Can-Spend outputs）：
+		与上面相反的是，一个交易可以按以下方式标记为可被任何人花费的：
+				scriptPubKey: (empty)
+				scriptSig: OP_TRUE
+		一些软件进行修改后，这种类型的交易可以被作为一种在手续费之外的对矿工额外捐款的方式：任何挖到这个交易的矿工都可以在之后包含一个将资金花费到一个自己控制的地址的交易。
+		这种机制将来可能用作一种可证明的忠诚性保证方式来作为牺牲基金(?)。
+			This mechanism may be used in the future for fidelity bonds to sacrifice funds in a provable way.
+		
+		任何人都可以花费的输出目前还没有标准，并且不会在P2P网络中进行传播。
+
+	交易中的谜语：
+		
+
+
+
+
+

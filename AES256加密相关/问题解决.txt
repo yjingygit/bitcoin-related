@@ -1,0 +1,36 @@
+
+加密过程中需要数据的长度是16的倍数，如果不是则需要用到数据扩张，填充方式有以下几种：
+NoPadding，PKCS5Padding，ISO10126Padding，PaddingMode.Zeros;PaddingMode.PKCS7;
+
+PaddingMode.Zeros：末尾补0，缺多少就补多少个0。
+PKCS5Padding和PKCS7Padding：两者是一样的，数据缺少几个就填充几，如：只有10个则填充6个“0x06”。
+
+PKCS5, PKCS7和SSL3, 以及CMS(Cryptographic Message Syntax)
+有如下相同的特点：
+1. 填充的字节都是一个相同的字节。
+2. 该字节的值就是要填充的字节的个数。
+* 要填充8个，则填充“0x08”，7个则填充“0x07”。
+
+	
+
+如果刚满16个，则补充同样需要补充16个字节。
+PaddingMode.Zeros：补充16个字节的0。
+PKCS7Padding：补充16个字节的16。
+
+
+
+
+报以下问题时：Java Security: Illegal key size or default parameters
+根据jre版本下载相应的修订包。
+jdk1.6: http://www.oracle.com/technetwork/java/javase/downloads/jce-6-download-429243.html
+jdk1.7: http://www.oracle.com/technetwork/java/javase/downloads/jce-7-download-432124.html
+jdk1.8: http://www.oracle.com/technetwork/java/javase/downloads/jce8-download-2133166.html
+
+
+AES for CryptoJS：
+crypto js中的AES加密是一个自定义的加密方式，只是使用了AES256位加密做为主体。
+区别：
+	1. 根据输入的密码通过一个固定的算法将之分割成盐和密码两部分。
+	2. 在加密生成的内容头部加入了"Salt__"和生成的盐的内容后才进行Base64编码处理。
+
+
